@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const File = std.fs.File;
+
 pub const RC4 = struct {
     state: [256]u8 = [_]u8{
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -39,6 +41,37 @@ pub const RC4 = struct {
         for (src) |val, idx| {
             dest[idx] = ks.next() ^ val;
         }
+    }
+
+    pub fn stream(comptime WriterType: type, comptime ReaderType: type) type {
+        return struct {
+            rc4: RC4,
+
+            const Self = @This();
+
+            pub fn init(key: []const u8) Self {
+                return Self{
+                    .rc4 = RC4.init(key),
+                };
+            }
+            pub fn encrypt(self: *Self, dest: WriterType, src: ReaderType) !void {
+                var ks = self.rc4.keystream();
+                while (src.readByte()) |src_byte| {
+                    try dest.writeByte(ks.next() ^ src_byte);
+                } else |err| {
+                    switch (err) {
+                        error.EndOfStream => {
+                            return;
+                        },
+                        else => {
+                            return err;
+                        },
+                    }
+                }
+            }
+
+            pub const decryptStream = encryptStream;
+        };
     }
 
     pub const decrypt = encrypt;
@@ -101,4 +134,16 @@ test "rc4" {
 
         std.testing.expectEqualSlices(u8, out[0..tc.plaintext.len], tc.ciphertext[0..]);
     }
+}
+
+test "rc4 streaming" {
+    var out = std.ArrayList(u8).init(std.testing.allocator);
+    defer out.deinit();
+    var writer = out.writer();
+    var reader = std.io.fixedBufferStream("Plaintext").reader();
+
+    var rc4 = RC4.stream(@TypeOf(writer), @TypeOf(reader)).init("Key"[0..]);
+    try rc4.encrypt(writer, reader);
+
+    std.testing.expectEqualSlices(u8, out.items, &[_]u8{ 0xBB, 0xF3, 0x16, 0xE8, 0xD9, 0x40, 0xAF, 0x0A, 0xD3 });
 }
