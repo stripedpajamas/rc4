@@ -8,10 +8,14 @@ const Options = struct {
     key: ?[]const u8 = null,
 
     decrypt_flag: bool = false,
+
     file_flag: bool = false,
-    text_flag: bool = false,
     file: ?[]const u8 = null,
+
+    text_flag: bool = false,
     text: ?[]const u8 = null,
+
+    stdin: bool = false,
 };
 
 fn printHelp(stdout: fs.File) !void {
@@ -73,8 +77,21 @@ pub fn main() !void {
         }
     }
 
-    if (opts.key == null or (opts.file == null and opts.text == null)) {
+    if (opts.key == null) {
         try printHelp(stdout);
+        return;
+    }
+
+    if (opts.file_flag or opts.text_flag) {
+        if (opts.file == null and opts.text == null) {
+            try printHelp(stdout);
+            return;
+        }
+    } else { // expecting stdin
+        var out = stdout.writer();
+        var in = io.getStdIn().reader();
+        var rc4 = RC4.stream(@TypeOf(out), @TypeOf(in)).init(opts.key.?);
+        try rc4.encrypt(out, in);
         return;
     }
 
